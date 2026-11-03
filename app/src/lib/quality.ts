@@ -21,9 +21,9 @@ export interface Assessed {
   res: Record<Param, Reading & { raw: number | null }>;
 }
 
-const file = raw as { meta: { file: string; date: string }; rows: Project[] };
-export const META = file.meta;
-export const PROJECTS = file.rows;
+export interface Dataset { meta: { file: string; date: string }; rows: Project[] }
+/** The data built into the page by build_dashboard.py. */
+export const PUBLISHED = raw as Dataset;
 
 export const PARAMS: Param[] = ['ph', 'tds', 'ntu'];
 export const STAGES: Stage[] = ['raw', 'rawlab', 'filt', 'filtlab'];
@@ -95,7 +95,7 @@ function assess(p: Project): Assessed {
 }
 
 const ORDER: Record<Level, number> = { fail: 0, risk: 1, nd: 2, ok: 3 };
-export const ITEMS: Assessed[] = PROJECTS.map(assess).sort(
+export const buildItems = (rows: Project[]): Assessed[] => rows.map(assess).sort(
   (a, b) => ORDER[a.lv] - ORDER[b.lv] || b.sev - a.sev || a.p.code.localeCompare(b.p.code),
 );
 

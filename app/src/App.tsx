@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { PanelMeter } from './components/PanelMeter';
 import { Select, type Option } from './components/Select';
+import { DataBar } from './components/DataBar';
+import { useDataset } from './lib/useDataset';
 import {
-  ITEMS, LEVEL, LEVELS, META, PARAMS, PNAME, STAGES, STAGE_NAME, STAGE_SRC, countLevels, fmt, fmtN, judge, notesFor, toneClass,
+  LEVEL, LEVELS, PARAMS, buildItems, PNAME, STAGES, STAGE_NAME, STAGE_SRC, countLevels, fmt, fmtN, judge, notesFor, toneClass,
   type Assessed, type Level, type Param, type Stage,
 } from './lib/quality';
 
@@ -20,9 +22,6 @@ function useTheme(): [Theme, (t: Theme) => void] {
   return [theme, setTheme];
 }
 
-const TYPES = [...new Set(ITEMS.map((i) => i.p.type).filter(Boolean))].sort();
-const PROVINCES = [...new Set(ITEMS.map((i) => i.p.province).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'th'));
-
 const LEVEL_OPTIONS: Option<LevelFilter>[] = [
   { value: 'action', label: 'ไม่ผ่าน + เฝ้าระวัง', dot: 'linear-gradient(90deg, var(--fail) 50%, var(--risk) 50%)' },
   ...LEVELS.map((k) => ({ value: k, label: LEVEL[k].name, dot: `var(--${k})` })),
@@ -32,11 +31,17 @@ const PARAM_OPTIONS: Option<Param | ''>[] = [
   { value: '', label: 'ทุกค่า' },
   ...PARAMS.map((p) => ({ value: p, label: `เฉพาะปัญหา ${PNAME[p]}` })),
 ];
-const TYPE_OPTIONS: Option<string>[] = [{ value: '', label: 'ทุกประเภทระบบ' }, ...TYPES.map((t) => ({ value: t, label: `ระบบ ${t}` }))];
-const PROVINCE_OPTIONS: Option<string>[] = [{ value: '', label: 'ทุกจังหวัด' }, ...PROVINCES.map((t) => ({ value: t, label: t }))];
 
 export default function App() {
   const [theme, setTheme] = useTheme();
+  const ds = useDataset();
+  const ITEMS = useMemo(() => buildItems(ds.data.rows), [ds.data]);
+  const TYPES = useMemo(() => [...new Set(ITEMS.map((i) => i.p.type).filter(Boolean))].sort(), [ITEMS]);
+  const TYPE_OPTIONS: Option<string>[] = useMemo(() => [{ value: '', label: 'ทุกประเภทระบบ' }, ...TYPES.map((t) => ({ value: t, label: `ระบบ ${t}` }))], [TYPES]);
+  const PROVINCE_OPTIONS: Option<string>[] = useMemo(() => [
+    { value: '', label: 'ทุกจังหวัด' },
+    ...[...new Set(ITEMS.map((i) => i.p.province).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'th')).map((t) => ({ value: t, label: t })),
+  ], [ITEMS]);
   const [lvl, setLvl] = useState<LevelFilter>('action');
   const [param, setParam] = useState<Param | ''>('');
   const [type, setType] = useState('');
@@ -58,7 +63,7 @@ export default function App() {
       if (s && !`${i.p.wtp} ${i.p.code} ${i.p.site}`.toLowerCase().includes(s)) return false;
       return true;
     });
-  }, [lvl, param, type, prov, q]);
+  }, [ITEMS, lvl, param, type, prov, q]);
   const current = ITEMS.find((i) => i.p.code === selected) ?? ITEMS[0];
 
   const pick = (code: string) => {
@@ -90,6 +95,13 @@ export default function App() {
           ))}
         </div>
       </header>
+
+      <DataBar
+        data={ds.data} isUploaded={ds.isUploaded} upload={ds.upload}
+        onFile={(f) => { reset(); setSelected(''); void ds.loadFile(f); }}
+        onReset={() => { reset(); setSelected(''); ds.usePublished(); }}
+        onDismiss={ds.dismiss}
+      />
 
       <section className="status" aria-label="สรุปตามระดับ">
         {LEVELS.map((k) => (
@@ -145,13 +157,13 @@ export default function App() {
         </div>
         <div className="legend">{LEVELS.map((k) => <span key={k} className={`lv-${k}`}><i />{LEVEL[k].name}</span>)}</div>
         <div className="two">
-          <ByParam onPick={(p, k) => showList(k ? { lvl: k, param: k === 'fail' || k === 'risk' ? p : '' } : { lvl: 'all' })} />
-          <ByType onPick={(t, k) => showList({ lvl: k, type: t })} />
+          <ByParam items={ITEMS} onPick={(p, k) => showList(k ? { lvl: k, param: k === 'fail' || k === 'risk' ? p : '' } : { lvl: 'all' })} />
+          <ByType items={ITEMS} types={TYPES} onPick={(t, k) => showList({ lvl: k, type: t })} />
         </div>
       </section>
 
       <footer>
-        <div>ข้อมูลจาก {META.file}{META.date ? ` · ณ วันที่ ${META.date}` : ''} · {fmtN(ITEMS.length)} โครงการ</div>
+        <div>ข้อมูลจาก {ds.data.meta.file}{ds.data.meta.date ? ` · ณ วันที่ ${ds.data.meta.date}` : ''} · {fmtN(ITEMS.length)} โครงการ</div>
         <div>ระดับความเสี่ยงประเมินจากค่าน้ำผ่านกรองจากผลแลป · ช่วงเฝ้าระวัง: pH ต่ำกว่า 6.8 หรือสูงกว่า 8.2, TDS ตั้งแต่ 480 mg/L, ความขุ่นตั้งแต่ 4 NTU · แนวทางแก้ไขเป็นข้อเสนอเบื้องต้น ควรให้วิศวกรตรวจสอบหน้างานก่อนดำเนินการ</div>
       </footer>
     </div>
@@ -250,7 +262,7 @@ function StackBar({ cnt, label, onPick }: { cnt: Record<Level, number>; label: s
 }
 
 /** onPick gets the level clicked on the filtered-water bar, or null for the raw-water bar (shows every project). */
-function ByParam({ onPick }: { onPick: (p: Param, k: Level | null) => void }) {
+function ByParam({ items: ITEMS, onPick }: { items: Assessed[]; onPick: (p: Param, k: Level | null) => void }) {
   return (
     <div className="card">
       <div><h3>แยกตามค่า: น้ำดิบ เทียบ น้ำผ่านกรอง</h3>
@@ -274,7 +286,7 @@ function ByParam({ onPick }: { onPick: (p: Param, k: Level | null) => void }) {
   );
 }
 
-function ByType({ onPick }: { onPick: (t: string, k: Level) => void }) {
+function ByType({ items: ITEMS, types: TYPES, onPick }: { items: Assessed[]; types: string[]; onPick: (t: string, k: Level) => void }) {
   const rows = TYPES.map((t) => ({ t, cnt: countLevels(ITEMS.filter((i) => i.p.type === t)) }))
     .sort((a, b) => b.cnt.fail * 100 + b.cnt.risk - (a.cnt.fail * 100 + a.cnt.risk));
   return (
