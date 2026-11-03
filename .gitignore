@@ -1,0 +1,7 @@
+node_modules/
+app/dist/
+.dashcache/
+__pycache__/
+~$*.xlsx
+.DS_Store
+Thumbs.db
